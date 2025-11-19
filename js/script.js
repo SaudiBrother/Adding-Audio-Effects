@@ -335,8 +335,6 @@ class DAWApp {
                 mod.classList.remove('reordering');
                 dragHandle.classList.remove('active');
                 this.showToast("Reorder cancelled", 'info');
-                // Optional: Reset DOM position if needed (requires caching original index), 
-                // but for simplicity we keep current pos as cancellation usually implies just exiting the mode.
             } else if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 if (mod.classList.contains('reordering')) {
