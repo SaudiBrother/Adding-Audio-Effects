@@ -28,6 +28,7 @@ class DAWApp {
         this.initEventListeners();
         this.renderFXChain();
         this.startUpdateLoop();
+        // Filter valid effects only
         this.state.fxChainOrder = this.state.fxChainOrder.filter(id => EFFECTS_CONFIG[id]);
     }
 
@@ -73,11 +74,7 @@ class DAWApp {
         this.audio.masterGain.connect(this.audio.analyser);
         this.audio.analyser.connect(this.audio.ctx.destination);
         this.audio.meterData = new Float32Array(this.audio.analyser.fftSize);
-        
-        // Initial Reverb Buffer
-        const initialDecay = this.state.fxParams.reverb ? this.state.fxParams.reverb.decay : 2.0;
-        this.reverbBuffer = this.createImpulseResponse(this.audio.ctx, initialDecay, initialDecay);
-        
+        this.reverbBuffer = this.createImpulseResponse(this.audio.ctx, 2.0, 2.0);
         this.createFXNodes(this.audio.ctx, this.audio.nodes);
     }
 
@@ -97,15 +94,14 @@ class DAWApp {
                     group.nodes.comp = ctx.createDynamicsCompressor();
                     input.connect(group.nodes.comp).connect(output); break;
                 case 'delay':
-                    group.nodes.delay = ctx.createDelay(5.0); // Max delay increased slightly for safety
+                    group.nodes.delay = ctx.createDelay(2.0);
                     group.nodes.feedback = ctx.createGain(); group.nodes.wet = ctx.createGain(); group.nodes.dry = ctx.createGain();
                     input.connect(group.nodes.dry).connect(output);
                     input.connect(group.nodes.delay); group.nodes.delay.connect(group.nodes.feedback).connect(group.nodes.delay); group.nodes.delay.connect(group.nodes.wet).connect(output);
                     break;
                 case 'reverb':
                     group.nodes.conv = ctx.createConvolver();
-                    group.nodes.conv.buffer = this.reverbBuffer; 
-                    group.nodes.dry = ctx.createGain(); group.nodes.wet = ctx.createGain();
+                    group.nodes.conv.buffer = this.reverbBuffer; group.nodes.dry = ctx.createGain(); group.nodes.wet = ctx.createGain();
                     input.connect(group.nodes.dry).connect(output); input.connect(group.nodes.conv).connect(group.nodes.wet).connect(output);
                     break;
             }
@@ -173,7 +169,7 @@ class DAWApp {
         }, 3000);
     }
 
-    // --- PLAYBACK ---
+    // --- PLAYBACK & HANDLING ---
     async handleFileLoad(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -182,6 +178,7 @@ class DAWApp {
         this.dom.fileName.textContent = "Decoding...";
         this.dom.playBtn.disabled = true; this.dom.downloadBtn.disabled = true;
         
+        // Resume AudioContext on user gesture
         if(this.audio.ctx.state === 'suspended') await this.audio.ctx.resume();
 
         try {
@@ -197,7 +194,7 @@ class DAWApp {
         } catch (err) {
             console.error(err);
             this.dom.fileName.textContent = "Load Failed";
-            this.showToast("Gagal memuat file audio.", 'error');
+            this.showToast("Gagal memuat file audio. Format mungkin tidak didukung.", 'error');
         } finally {
             this.dom.fileInput.value = "";
         }
@@ -245,6 +242,8 @@ class DAWApp {
 
     handleGlobalReset() {
         if(!confirm("Reset semua efek ke pengaturan awal?")) return;
+        
+        // Reset parameters to config defaults
         for (const fxId of this.state.fxChainOrder) {
             if (EFFECTS_CONFIG[fxId]) {
                 this.state.fxParams[fxId].bypass = false;
@@ -253,6 +252,7 @@ class DAWApp {
                 }
             }
         }
+        // Re-render UI and update audio nodes
         this.renderFXChain();
         this.showToast("Semua efek di-reset", "info");
     }
@@ -302,17 +302,7 @@ class DAWApp {
                 if (paramId === 'feedback') nodes.feedback.gain.setTargetAtTime(value, time, 0.01);
                 if (paramId === 'mix') { nodes.dry.gain.setTargetAtTime(1 - value, time, 0.01); nodes.wet.gain.setTargetAtTime(value, time, 0.01); } break;
             case 'reverb':
-                if (paramId === 'mix') { 
-                    nodes.dry.gain.setTargetAtTime(1 - value, time, 0.01); 
-                    nodes.wet.gain.setTargetAtTime(value, time, 0.01); 
-                } 
-                // --- REAL-TIME REVERB DECAY FIX ---
-                if (paramId === 'decay') {
-                    // Update buffer directly for real-time change
-                    const duration = Math.max(0.1, value); // Prevent 0 duration
-                    nodes.conv.buffer = this.createImpulseResponse(ctx, duration, duration);
-                }
-                break;
+                if (paramId === 'mix') { nodes.dry.gain.setTargetAtTime(1 - value, time, 0.01); nodes.wet.gain.setTargetAtTime(value, time, 0.01); } break;
         }
     }
 
@@ -336,21 +326,27 @@ class DAWApp {
         });
         if(this.state.fxParams[fxId].bypass) mod.classList.add('bypassed');
 
+        // KEYBOARD DRAG & DROP [ACCESSIBILITY]
         const dragHandle = mod.querySelector('.drag-handle');
         dragHandle.addEventListener('keydown', (e) => {
             if (e.key === 'Escape' && mod.classList.contains('reordering')) {
+                // Cancel Reorder
                 e.preventDefault();
                 mod.classList.remove('reordering');
                 dragHandle.classList.remove('active');
                 this.showToast("Reorder cancelled", 'info');
+                // Optional: Reset DOM position if needed (requires caching original index), 
+                // but for simplicity we keep current pos as cancellation usually implies just exiting the mode.
             } else if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 if (mod.classList.contains('reordering')) {
+                    // Drop
                     mod.classList.remove('reordering');
                     dragHandle.classList.remove('active');
                     this.updateChainOrder();
                     this.showToast(`${config.name} moved`, 'success');
                 } else {
+                    // Grab
                     mod.classList.add('reordering');
                     dragHandle.classList.add('active');
                     this.showToast(`Moving ${config.name}. Use Arrows. ESC to cancel.`, 'reorder');
@@ -478,28 +474,35 @@ class DAWApp {
         this.dom.masterPeak.style.left = `${Math.min(100, Math.max(0, (20 * Math.log10(this.state.masterPeak || 0.0001) + 60) / 60 * 100))}%`;
     }
 
+    // --- FULLY IMPLEMENTED DRAG & DROP ---
     initDragAndDrop() {
         const container = this.dom.fxChainContainer;
+        
         container.addEventListener('dragstart', e => {
             if(e.target.classList.contains('fx-module')) {
                 this.draggedElement = e.target;
                 e.target.classList.add('dragging');
+                // Set drag effect
                 e.dataTransfer.effectAllowed = 'move';
             }
         });
+
         container.addEventListener('dragend', e => {
             if(this.draggedElement) {
                 this.draggedElement.classList.remove('dragging');
                 this.draggedElement = null;
-                this.updateChainOrder();
+                this.updateChainOrder(); // Save order & reconnect Audio
             }
         });
+
         container.addEventListener('dragover', e => {
-            e.preventDefault();
+            e.preventDefault(); // Necessary to allow dropping
             e.dataTransfer.dropEffect = 'move';
+            
             const afterElement = this.getDragAfterElement(container, e.clientY);
             const draggable = document.querySelector('.dragging');
             if (!draggable) return;
+
             if (afterElement == null) {
                 container.appendChild(draggable);
             } else {
@@ -521,6 +524,7 @@ class DAWApp {
         }, { offset: Number.NEGATIVE_INFINITY }).element;
     }
 
+    // --- IMPLEMENTED PANEL RESIZER ---
     initPanelResizer() {
         let isResizing = false;
         const resizer = this.dom.resizer;
@@ -531,13 +535,17 @@ class DAWApp {
             document.body.style.cursor = 'col-resize';
             e.preventDefault();
         });
+
         window.addEventListener('mousemove', (e) => {
             if (!isResizing) return;
+            // Calculate new width from right side of screen
             const newWidth = document.body.clientWidth - e.clientX;
+            // Min 300px, Max 600px
             if (newWidth > 300 && newWidth < 600) {
                 panel.style.width = `${newWidth}px`;
             }
         });
+
         window.addEventListener('mouseup', () => {
             if(isResizing) {
                 isResizing = false;
@@ -546,6 +554,7 @@ class DAWApp {
         });
     }
 
+    // --- UTILS ---
     formatTime(sec) {
         const m = Math.floor(sec / 60);
         const s = Math.floor(sec % 60);
@@ -589,6 +598,7 @@ class DAWApp {
     }
 }
 
+// Visualizer Classes (Simplified placeholders for context)
 class Waveform {
     constructor(c1, c2) { this.c1 = c1; this.ctx1 = c1.getContext('2d'); this.c2 = c2; this.ctx2 = c2.getContext('2d'); this.data = null; }
     draw(buffer) { 
@@ -618,59 +628,22 @@ class Waveform {
         this.ctx2.fillRect(0, 0, this.c2.width * (pct/100), this.c2.height);
     }
 }
-
-// --- TRUE WATERFALL SPECTROGRAM SPECTROGRAM CLASS ---
 class Spectrogram {
-    constructor(c, a) { 
-        this.c = c; 
-        this.ctx = c.getContext('2d', { alpha: false }); // optimize
-        this.a = a; 
-        this.d = new Uint8Array(a.frequencyBinCount);
-        // Init with black background
-        this.ctx.fillStyle = '#000';
-        this.ctx.fillRect(0, 0, c.width, c.height);
-    }
-
+    constructor(c, a) { this.c = c; this.ctx = c.getContext('2d'); this.a = a; this.d = new Uint8Array(a.frequencyBinCount); }
     draw() {
-        // 1. Get Frequency Data
         this.a.getByteFrequencyData(this.d);
-        
-        const w = this.c.width;
-        const h = this.c.height;
-
-        // 2. Shift Canvas 1px Left
-        this.ctx.drawImage(this.c, 1, 0, w - 1, h, 0, 0, w - 1, h);
-
-        // 3. Draw New Column on Right
-        // Optimized: Instead of drawing 1024 pixel rects, we create a single pixel strip
-        // but for simplicity and correct color mapping per bin, we iterate.
-        
-        const binCount = this.d.length;
-        
-        // We iterate through the frequency bins and map them to the canvas height
-        // Since binCount (1024) > height (~150), we skip/sample or just draw.
-        // Drawing from bottom (low freq) to top (high freq).
-        
-        for (let i = 0; i < h; i++) {
-            // Map y-pixel to frequency bin index
-            // y=0 is top (high freq), y=h is bottom (low freq)
-            // So index should be inverted relative to y
-            const freqIndex = Math.floor(((h - i) / h) * (binCount / 2)); // Use half bandwidth for better visual
-            
-            const value = this.d[freqIndex]; // 0 - 255
-            
-            // Color Mapping (Amplitude -> Color)
-            // 0 = Black, 255 = Bright Red/White
-            // Simple Heatmap: Blue -> Green -> Red
-            const hue = 260 - (value / 255) * 260; // 260(purple) to 0(red)
-            const light = value > 10 ? 50 : 0; // Turn off if silent
-
-            this.ctx.fillStyle = `hsl(${hue}, 100%, ${light}%)`;
-            this.ctx.fillRect(w - 1, i, 1, 1);
+        const w = this.c.width, h = this.c.height;
+        // Simple cascading or line viz
+        this.ctx.fillStyle = 'rgba(0,0,0,0.1)'; this.ctx.fillRect(0,0,w,h);
+        const barW = w / this.d.length * 2.5; let x = 0;
+        for(let i=0; i<this.d.length; i++) {
+            const val = this.d[i];
+            this.ctx.fillStyle = `rgb(${val}, 50, 200)`;
+            this.ctx.fillRect(x, h - val/255*h, barW, val/255*h);
+            x += barW + 1;
         }
     }
 }
-
 class Oscilloscope {
     constructor(c, a) { this.c = c; this.ctx = c.getContext('2d'); this.a = a; this.d = new Uint8Array(a.fftSize); }
     draw() {
@@ -688,4 +661,5 @@ class Oscilloscope {
     }
 }
 
+// Init
 window.addEventListener('DOMContentLoaded', () => { const app = new DAWApp(); app.init(); });
