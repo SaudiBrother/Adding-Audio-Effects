@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="id" class="theme-dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="DAW FX Rack - Audio Processing in Browser">
+    <title>DAW FX Rack - Ultimate Edition</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    
+    <link rel="stylesheet" href="style.css">
+    <script src="script.js" defer></script>
+</head>
+<body>
+
+    <div class="app-container">
+        <header class="app-header">
+            <h1 class="app-title"><i class="fa-solid fa-wave-square"></i> DAW FX Rack</h1>
+            <div class="header-actions">
+                <select id="theme-selector" class="btn-secondary btn-style" aria-label="Pilih Tema">
+                    <option value="theme-dark">Dark</option>
+                    <option value="theme-light">Light</option>
+                    <option value="theme-neon">Neon</option>
+                    <option value="theme-studio">Studio</option>
+                </select>
+                
+                <button id="upload-trigger-btn" class="btn btn-secondary" aria-label="Muat File Audio">
+                    <i class="fa-solid fa-upload"></i> <span class="hide-on-mobile">Upload</span>
+                </button>
+                <input type="file" id="file-input" accept="audio/*" style="display: none;" aria-hidden="true">
+
+                <button id="download-btn" class="btn" disabled aria-label="Render dan Download WAV">
+                    <i class="fa-solid fa-download"></i> <span class="hide-on-mobile">Export</span>
+                </button>
+            </div>
+        </header>
+
+        <main class="workspace" role="main">
+            <div class="main-panel" id="main-panel">
+                <div class="card player-card">
+                    <div class="playback-ui">
+                        <button id="play-pause-btn" class="play-btn" disabled aria-label="Mainkan atau Jeda Audio">
+                            <i class="fa-solid fa-play"></i>
+                        </button>
+                        <div class="waveform-wrapper">
+                            <div class="waveform-container" id="waveform-container" role="slider" tabindex="0" aria-label="Posisi Playback" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                                <canvas id="waveform-canvas"></canvas>
+                                <canvas id="progress-overlay"></canvas>
+                                <div id="playhead"></div>
+                            </div>
+                            <div class="time-display">
+                                <span id="current-time">0:00.00</span>
+                                <span id="file-name" class="file-info" aria-live="polite">No file loaded</span>
+                                <span id="total-duration">0:00.00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card visualizer-card">
+                    <div class="canvas-wrapper">
+                        <span class="canvas-title">Spectrogram</span>
+                         <canvas id="spectrogram-canvas"></canvas>
+                    </div>
+                    <div class="canvas-wrapper">
+                        <span class="canvas-title">Oscilloscope</span>
+                         <canvas id="oscilloscope-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div id="panel-resizer" role="separator" aria-orientation="vertical" title="Drag to resize panel"></div>
+
+            <aside class="controls-panel" id="controls-panel" aria-label="Panel Efek">
+                <div class="panel-header">
+                    <div class="panel-title-wrapper">
+                        <h2>Effects Chain</h2>
+                        <small>Drag to Reorder</small>
+                    </div>
+                    <button id="global-reset-btn" class="btn-icon-text" title="Reset all effects to default">
+                        <i class="fa-solid fa-rotate-left"></i> Reset All
+                    </button>
+                </div>
+                
+                <div id="fx-chain-container" role="list"></div>
+                
+                <div id="empty-chain-msg" aria-live="polite" style="text-align: center; padding: 2rem; color: var(--text-secondary);">
+                    Memuat Modul Efek...
+                </div>
+            </aside>
+        </main>
+        
+        <footer class="app-footer">
+            <span class="master-label">MASTER OUT</span>
+            <div class="master-meter-container" role="meter" aria-label="Output Level" aria-valuemin="-60" aria-valuemax="0" aria-valuenow="-60">
+                <div class="master-meter-bar" id="master-meter-bar"></div>
+                <div class="master-peak-indicator" id="master-peak-indicator" style="left: 0%;"></div>
+            </div>
+            <div class="master-readout" id="master-db-readout" aria-hidden="true">-∞ dB</div>
+        </footer>
+    </div>
+
+    <div id="toast-container" class="toast-container"></div>
+    
+    <template id="fx-module-template">
+        <div class="card fx-module" draggable="true" role="listitem">
+            <div class="fx-module-header">
+                <div class="fx-title-group">
+                    <i class="module-icon" aria-hidden="true"></i>
+                    <span class="fx-module-title">Module Name</span>
+                </div>
+                <div class="fx-header-controls">
+                    <label class="toggle-switch" title="Bypass Effect">
+                        <input type="checkbox" class="bypass-toggle" checked aria-label="Toggle Bypass">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <i class="fa-solid fa-grip-vertical drag-handle" title="Drag or Press Enter to Reorder" tabindex="0" role="button" aria-label="Pindah posisi modul"></i>
+                </div>
+            </div>
+            <div class="fx-module-controls"></div>
+        </div>
+    </template>
+
+</body>
+</html>
